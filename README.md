@@ -1,6 +1,4 @@
-# ym2149
-
-Cycle-accurate YM2149F / Atari ST PSG emulation in Go, with a separate Ebiten renderer/audio package.
+# YM2149 Cycle-accurate YM2149F / Atari ST PSG emulation in Go
 
 This repository is intended to be reused later as the sound subsystem for a larger Atari ST emulator. The current focus is a reusable chip core with deterministic timing, a separate Ebiten-facing renderer/audio adapter, and a demo harness for quick listening and debugging.
 
