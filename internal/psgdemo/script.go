@@ -1,6 +1,6 @@
 package psgdemo
 
-import ym2149 "ym2149/emulation"
+import ym2149 "github.com/jenska/ym2149/emulation"
 
 type ScriptStep struct {
 	Name     string

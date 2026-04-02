@@ -3,7 +3,7 @@ package psgdemo
 import (
 	"testing"
 
-	ym2149 "ym2149/emulation"
+	ym2149 "github.com/jenska/ym2149/emulation"
 )
 
 func TestDefaultSequenceAdvancesAndWritesRegisters(t *testing.T) {

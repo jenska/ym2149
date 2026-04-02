@@ -1,4 +1,4 @@
-module ym2149
+module github.com/jenska/ym2149
 
 go 1.25
 

@@ -7,11 +7,12 @@ import (
 	"log"
 	"time"
 
-	ym2149 "ym2149/emulation"
-	"ym2149/internal/psgdemo"
-	"ym2149/renderer/atarist"
-	"ym2149/renderer/bandlimited"
-	"ym2149/renderer/ebitenaudio"
+	ym2149 "github.com/jenska/ym2149/emulation"
+
+	"github.com/jenska/ym2149/internal/psgdemo"
+	"github.com/jenska/ym2149/renderer/atarist"
+	"github.com/jenska/ym2149/renderer/bandlimited"
+	"github.com/jenska/ym2149/renderer/ebitenaudio"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"

@@ -3,7 +3,7 @@ package ym2149
 import (
 	"testing"
 
-	"ym2149/renderer/ebitenaudio"
+	"github.com/jenska/ym2149/renderer/ebitenaudio"
 )
 
 func BenchmarkStep(b *testing.B) {
