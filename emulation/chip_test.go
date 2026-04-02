@@ -19,6 +19,20 @@ func TestConfigDefaults(t *testing.T) {
 	}
 }
 
+func TestNewWithDefaultsUsesProvidedRatesAndDefaultBuffer(t *testing.T) {
+	chip := NewWithDefaults(1_789_772, 44_100)
+
+	if got := chip.ClockHz(); got != 1_789_772 {
+		t.Fatalf("ClockHz = %d, want %d", got, 1_789_772)
+	}
+	if got := chip.OutputSampleRate(); got != 44_100 {
+		t.Fatalf("OutputSampleRate = %d, want %d", got, 44_100)
+	}
+	if got := len(chip.samples.data); got != defaultBufferSamples {
+		t.Fatalf("buffer length = %d, want %d", got, defaultBufferSamples)
+	}
+}
+
 func TestRegisterReadbackAndMasking(t *testing.T) {
 	chip := New(Config{})
 

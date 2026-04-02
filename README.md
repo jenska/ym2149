@@ -1,6 +1,8 @@
-# YM2149 Cycle-accurate YM2149F / Atari ST PSG emulation in Go
+# YM2149
 
-This repository is intended to be reused later as the sound subsystem for a larger Atari ST emulator. The current focus is a reusable chip core with deterministic timing, a separate Ebiten-facing renderer/audio adapter, and a demo harness for quick listening and debugging.
+Cycle-accurate YM2149F / Atari ST PSG emulation in Go.
+
+This repository is intended to be reused later as the sound subsystem for a larger Atari ST emulator. The current focus is a reusable chip core with deterministic timing, backend-neutral audio rendering helpers, an Ebiten adapter, and a demo harness for quick listening and debugging.
 
 ## Status
 
@@ -15,8 +17,9 @@ This repository is intended to be reused later as the sound subsystem for a larg
 
 - `emulation`: reusable PSG core package
 - `renderer/atarist`: Atari ST board-output approximation
+- `renderer/audiostream`: backend-neutral stereo PCM reader submodule
 - `renderer/bandlimited`: oversampling + FIR decimation renderer
-- `renderer/ebitenaudio`: Ebiten audio reader/player helpers
+- `renderer/ebitenaudio`: Ebiten audio reader/player helpers in a dedicated Go submodule
 - `internal/psgdemo`: shared scripted demo logic
 - `cmd/psgdemo`: Ebiten demo app
 
@@ -36,14 +39,16 @@ This repository is intended to be reused later as the sound subsystem for a larg
 ```go
 package main
 
-import ym2149 "ym2149/emulation"
+import (
+	"log"
+
+	ym2149 "github.com/jenska/ym2149/emulation"
+	"github.com/jenska/ym2149/renderer/atarist"
+	"github.com/jenska/ym2149/renderer/bandlimited"
+)
 
 func main() {
-	chip := ym2149.New(ym2149.Config{
-		ClockHz:          2_000_000,
-		OutputSampleRate: 48_000 * 4,
-		BufferSamples:    4_096 * 4,
-	})
+	chip := ym2149.NewWithDefaults(2_000_000, 48_000*4)
 
 	chip.SelectRegister(0)
 	chip.WriteData(0x20)
@@ -55,13 +60,17 @@ func main() {
 	chip.SelectRegister(8)
 	chip.WriteData(0x0f)
 
-chip.Step(20_000)
+	chip.Step(20_000)
 
-	decimator, _ := bandlimited.New(chip, bandlimited.Config{
+	decimator, err := bandlimited.New(chip, bandlimited.Config{
 		OversampleFactor: 4,
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	board := atarist.New(decimator, atarist.Config{})
-	samples := make([]float32, chip.BufferedSamples())
+	samples := make([]float32, decimator.OutputSampleRate()/10)
 	n := board.DrainMonoF32(samples)
 	_ = samples[:n]
 }
@@ -69,9 +78,12 @@ chip.Step(20_000)
 
 ## Core API
 
-The `ym2149/emulation` package currently exposes:
+The `github.com/jenska/ym2149/emulation` package currently exposes:
 
 - `New(Config) *Chip`
+- `NewWithDefaults(clockHz, sampleRate) *Chip`
+- `NewClockDomain(sourceHz, targetHz) *ClockDomain`
+- `NewPSGClockDomain(hostHz, psgHz) *ClockDomain`
 - `(*Chip).Reset()`
 - `(*Chip).Step(cycles uint32)`
 - `(*Chip).Cycles() uint64`
@@ -88,9 +100,11 @@ The `ym2149/emulation` package currently exposes:
 
 The library is safe to call from concurrent goroutines, which keeps it practical for a future emulator thread driving chip state while an audio thread drains samples.
 
+For host timing, `ClockDomain` provides a tiny exact integer accumulator that converts one cycle domain into another without losing fractional progress across calls.
+
 ## Band-Limited Renderer
 
-The `renderer/bandlimited` package downsamples an oversampled mono source through a windowed-sinc FIR:
+The `github.com/jenska/ym2149/renderer/bandlimited` package downsamples an oversampled mono source through a windowed-sinc FIR:
 
 - `bandlimited.New(source, config)`
 - `(*bandlimited.Decimator).DrainMonoF32(dst)`
@@ -100,11 +114,12 @@ Typical usage is:
 
 1. Configure the chip to produce PCM at `targetSampleRate * oversampleFactor`.
 2. Wrap it with `renderer/bandlimited`.
-3. Pass the decimated output into `renderer/atarist` and then `renderer/ebitenaudio`.
+3. Pass the decimated output into `renderer/atarist`.
+4. Choose a backend adapter such as `renderer/audiostream` or `renderer/ebitenaudio`.
 
 ## Atari ST Output Stage
 
-The `renderer/atarist` package wraps a mono source and applies a lightweight Atari ST-style board stage:
+The `github.com/jenska/ym2149/renderer/atarist` package wraps a mono source and applies a lightweight Atari ST-style board stage:
 
 - DC blocking / AC coupling via a one-pole high-pass filter
 - gentle treble roll-off via a one-pole low-pass filter
@@ -118,9 +133,11 @@ Helpers:
 
 This stage is intentionally configurable because the current defaults are a practical approximation, not a finalized per-board measurement model.
 
-## Ebiten Audio
+## Backend-Neutral Audio Stream
 
-The Ebiten adapter lives in `renderer/ebitenaudio` and is built around a minimal source interface:
+The backend-neutral stereo PCM adapter lives in `renderer/audiostream` and is built as its own nested Go module with module path `github.com/jenska/ym2149/renderer/audiostream`.
+
+It is built around a minimal source interface:
 
 ```go
 type MonoSource interface {
@@ -131,7 +148,19 @@ type MonoSource interface {
 
 Helpers:
 
-- `ebitenaudio.NewReader(source, framesPerRead)`
+- `audiostream.NewReader(source, framesPerRead)`
+- `(*audiostream.Reader).Read(p []byte)`
+- `(*audiostream.Reader).Underruns()`
+- `(*audiostream.Reader).OutputSampleRate()`
+
+This package does not import Ebiten and can be used by a future Atari ST emulator with any host audio backend that accepts an `io.Reader` or stereo `float32` PCM byte stream.
+
+## Ebiten Audio
+
+The Ebiten adapter lives in `renderer/ebitenaudio` and is built as its own nested Go module with module path `github.com/jenska/ym2149/renderer/ebitenaudio`. The root module uses a local `replace` during development so the demo and tests can still import it directly from this repo.
+
+Helpers:
+
 - `ebitenaudio.EnsureContext(sampleRate)`
 - `ebitenaudio.NewPlayer(source, buffer)`
 
@@ -141,7 +170,7 @@ The demo app is kept in `cmd/psgdemo`.
 
 It now runs the chip at 4x the final output sample rate, then passes audio through:
 
-`emulation -> renderer/bandlimited -> renderer/atarist -> renderer/ebitenaudio`
+`emulation -> renderer/bandlimited -> renderer/atarist -> renderer/audiostream -> renderer/ebitenaudio`
 
 Run scripted playback:
 
@@ -170,10 +199,16 @@ Interactive controls:
 
 ## Testing
 
-Run the root test suite:
+Run the root module test suite:
 
 ```sh
 go test ./...
+```
+
+Run all tests including the nested `renderer/audiostream` and `renderer/ebitenaudio` modules:
+
+```sh
+make test
 ```
 
 The repository includes:
@@ -181,7 +216,7 @@ The repository includes:
 - register and port behavior tests
 - envelope shape tests for all 16 shapes
 - PCM determinism tests across different `Step` chunk sizes
-- Ebiten adapter tests
+- backend-neutral audio stream tests
 - demo sequence smoke tests
 - benchmarks for stepping, draining, and the audio pipeline
 - band-limited decimator tests for DC preservation and high-frequency attenuation

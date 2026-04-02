@@ -159,6 +159,15 @@ func New(cfg Config) *Chip {
 	return c
 }
 
+// NewWithDefaults constructs a chip using the provided clock and sample rate,
+// while keeping the default internal buffer sizing.
+func NewWithDefaults(clockHz, sampleRate int) *Chip {
+	return New(Config{
+		ClockHz:          clockHz,
+		OutputSampleRate: sampleRate,
+	})
+}
+
 // Reset restores the chip to power-on state.
 func (c *Chip) Reset() {
 	c.mu.Lock()

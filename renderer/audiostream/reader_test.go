@@ -1,4 +1,4 @@
-package ebitenaudio
+package audiostream
 
 import (
 	"encoding/binary"

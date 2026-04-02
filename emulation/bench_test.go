@@ -3,7 +3,7 @@ package ym2149
 import (
 	"testing"
 
-	"github.com/jenska/ym2149/renderer/ebitenaudio"
+	"github.com/jenska/ym2149/renderer/audiostream"
 )
 
 func BenchmarkStep(b *testing.B) {
@@ -26,7 +26,7 @@ func BenchmarkDrainMonoF32(b *testing.B) {
 
 func BenchmarkAudioPipeline(b *testing.B) {
 	chip := configuredBenchmarkChip()
-	reader := ebitenaudio.NewReader(chip, 1024)
+	reader := audiostream.NewReader(chip, 1024)
 	pcm := make([]byte, 1024*8)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
