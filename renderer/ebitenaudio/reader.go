@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jenska/ym2149/renderer/audiostream"
 	"github.com/hajimehoshi/ebiten/v2/audio"
+	"github.com/jenska/ym2149/renderer/audiostream"
 )
 
 type MonoSource = audiostream.MonoSource

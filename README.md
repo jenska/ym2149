@@ -2,7 +2,21 @@
 
 Cycle-accurate YM2149F / Atari ST PSG emulation in Go.
 
+Release target: `v1.0.0`
+
 This repository is intended to be reused later as the sound subsystem for a larger Atari ST emulator. The current focus is a reusable chip core with deterministic timing, backend-neutral audio rendering helpers, an Ebiten adapter, and a demo harness for quick listening and debugging.
+
+## Versioning
+
+- The root module path is `github.com/jenska/ym2149`.
+- The planned first stable release is `v1.0.0`.
+- This repository currently uses a single Go module. All packages under `emulation/`, `renderer/`, `internal/`, and `cmd/` are released together under the root module tag.
+
+## Installation
+
+```sh
+go get github.com/jenska/ym2149@v1.0.0
+```
 
 ## Status
 
@@ -17,9 +31,9 @@ This repository is intended to be reused later as the sound subsystem for a larg
 
 - `emulation`: reusable PSG core package
 - `renderer/atarist`: Atari ST board-output approximation
-- `renderer/audiostream`: backend-neutral stereo PCM reader submodule
+- `renderer/audiostream`: backend-neutral stereo PCM reader package
 - `renderer/bandlimited`: oversampling + FIR decimation renderer
-- `renderer/ebitenaudio`: Ebiten audio reader/player helpers in a dedicated Go submodule
+- `renderer/ebitenaudio`: Ebiten audio reader/player helpers
 - `internal/psgdemo`: shared scripted demo logic
 - `cmd/psgdemo`: Ebiten demo app
 
@@ -135,7 +149,7 @@ This stage is intentionally configurable because the current defaults are a prac
 
 ## Backend-Neutral Audio Stream
 
-The backend-neutral stereo PCM adapter lives in `renderer/audiostream` and is built as its own nested Go module with module path `github.com/jenska/ym2149/renderer/audiostream`.
+The backend-neutral stereo PCM adapter lives in `renderer/audiostream`.
 
 It is built around a minimal source interface:
 
@@ -157,7 +171,7 @@ This package does not import Ebiten and can be used by a future Atari ST emulato
 
 ## Ebiten Audio
 
-The Ebiten adapter lives in `renderer/ebitenaudio` and is built as its own nested Go module with module path `github.com/jenska/ym2149/renderer/ebitenaudio`. The root module uses a local `replace` during development so the demo and tests can still import it directly from this repo.
+The Ebiten adapter lives in `renderer/ebitenaudio`.
 
 Helpers:
 
@@ -205,10 +219,10 @@ Run the root module test suite:
 go test ./...
 ```
 
-Run all tests including the nested `renderer/audiostream` and `renderer/ebitenaudio` modules:
+Run the standard release sanity check:
 
 ```sh
-make test
+make release-check
 ```
 
 The repository includes:

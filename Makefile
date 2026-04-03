@@ -6,12 +6,13 @@ GO_FILES := $(shell find emulation renderer internal cmd -name '*.go' -type f | 
 EBITEN_AUDIO_DIR := ./renderer/ebitenaudio
 AUDIOSTREAM_DIR := ./renderer/audiostream
 
-.PHONY: help fmt test bench build build-demo run-demo run-demo-interactive tidy clean
+.PHONY: help fmt fmt-check test bench build build-demo run-demo run-demo-interactive tidy release-check ci clean
 
 help:
 	@printf '%s\n' \
 		'Available targets:' \
 		'  make fmt                   Format Go source files' \
+		'  make fmt-check             Verify Go source formatting' \
 		'  make test                  Run the Go test suite' \
 		'  make bench                 Run benchmark suite' \
 		'  make build                 Build the demo binary' \
@@ -19,10 +20,14 @@ help:
 		'  make run-demo              Run the scripted demo' \
 		'  make run-demo-interactive  Run the interactive demo' \
 		'  make tidy                  Tidy Go modules' \
+		'  make release-check         Run release sanity checks' \
 		'  make clean                 Remove build artifacts'
 
 fmt:
 	$(GOFMT) -w $(GO_FILES)
+
+fmt-check:
+	test -z "$$($(GOFMT) -l $(GO_FILES))"
 
 test:
 	$(GO) test ./...
@@ -45,8 +50,12 @@ run-demo-interactive:
 
 tidy:
 	$(GO) mod tidy
-	cd $(AUDIOSTREAM_DIR) && $(GO) mod tidy
-	cd $(EBITEN_AUDIO_DIR) && $(GO) mod tidy
+
+release-check: test build-demo
+
+ci: fmt-check test
+	$(GO) vet ./...
+	$(GO) build $(DEMO_PKG)
 
 clean:
 	rm -f $(DEMO_BIN)
