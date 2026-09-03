@@ -54,7 +54,7 @@ func (o *Output) OutputSampleRate() int {
 // DrainMonoF32 copies filtered mono samples into dst.
 func (o *Output) DrainMonoF32(dst []float32) int {
 	n := o.source.DrainMonoF32(dst)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		sample := float64(dst[i]) * o.cfg.Gain
 		sample = o.hp.step(sample)
 		sample = o.lp.step(sample)

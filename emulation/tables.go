@@ -32,7 +32,7 @@ func buildAnalogMixTable() []float32 {
 	raw := make([]float64, analogMixTableSize)
 	maxRaw := 0.0
 
-	for envMask := 0; envMask < 8; envMask++ {
+	for envMask := range 8 {
 		ch1Levels, ch2Levels, ch3Levels := ym2149FixedResistors[:], ym2149FixedResistors[:], ym2149FixedResistors[:]
 		if envMask&0x01 != 0 {
 			ch1Levels = ym2149EnvelopeResistors[:]

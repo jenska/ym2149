@@ -31,3 +31,6 @@ go.work.sum
 # .idea/
 .vscode/
 psgdemo
+
+# macOS
+.DS_Store

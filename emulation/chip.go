@@ -35,6 +35,7 @@ package ym2149
 
 import (
 	"errors"
+	"sort"
 	"sync"
 )
 
@@ -52,6 +53,11 @@ type Config struct {
 	// BufferSamples is the size of the internal PCM sample buffer.
 	// Larger buffers reduce the chance of audio underruns but increase latency.
 	BufferSamples int
+
+	// ChannelTaps enables per-channel PCM buffers alongside the mono mix, so
+	// each tone channel's contribution can be drained separately with
+	// DrainChannelF32 (for stereo panning or per-voice visualisation).
+	ChannelTaps bool
 }
 
 // Validate checks that the configuration is valid and applies defaults for missing values.
@@ -137,6 +143,22 @@ type Chip struct {
 	samplePhase uint64     // Current sample phase accumulator
 	sampleAccum float64    // Accumulated sample value
 	samples     ringBuffer // Output sample buffer
+
+	// Per-channel PCM taps (only allocated when Config.ChannelTaps is set)
+	channelTaps    bool
+	channelAccum   [3]float64
+	channelSamples [3]ringBuffer
+
+	// Timestamped register writes, kept sorted by target cycle
+	pending []timedWrite
+}
+
+// timedWrite is a register write scheduled to take effect at an absolute
+// master-clock cycle count.
+type timedWrite struct {
+	at    uint64
+	reg   byte
+	value byte
 }
 
 type ringBuffer struct {
@@ -154,6 +176,12 @@ func New(cfg Config) *Chip {
 		samples: ringBuffer{
 			data: make([]float32, cfg.BufferSamples),
 		},
+		channelTaps: cfg.ChannelTaps,
+	}
+	if c.channelTaps {
+		for ch := range c.channelSamples {
+			c.channelSamples[ch].data = make([]float32, cfg.BufferSamples)
+		}
 	}
 	c.resetLocked()
 	return c
@@ -180,8 +208,13 @@ func (c *Chip) Step(cycles uint32) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for i := uint32(0); i < cycles; i++ {
-		c.integrateCycleLocked(c.mixLevelLocked())
+	for range cycles {
+		for len(c.pending) > 0 && c.pending[0].at <= c.cycles {
+			w := c.pending[0]
+			c.pending = c.pending[1:]
+			c.writeRegisterLocked(w.reg, w.value)
+		}
+		c.integrateCycleLocked(c.mixLevelsLocked())
 		c.cycles++
 		c.internalDividerPhase++
 		if c.internalDividerPhase == internalDivider {
@@ -189,6 +222,45 @@ func (c *Chip) Step(cycles uint32) {
 			c.tickInternalLocked()
 		}
 	}
+}
+
+// Write immediately sets register reg (0-15) to value, independent of the
+// SelectRegister/WriteData latch. It is a convenience for hosts that already
+// know the register/value pair.
+func (c *Chip) Write(reg, value byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.writeRegisterLocked(reg, value)
+}
+
+// WriteAt schedules a register write that takes effect once the master-clock
+// counter (see Cycles) reaches atCycle. Writes are applied in scheduling order
+// at the start of the target cycle, before that cycle is integrated. A write
+// whose atCycle already lies in the past is applied at the start of the next
+// Step. This lets a host queue a burst of bus writes with exact sub-Step
+// timing and then advance the chip once.
+func (c *Chip) WriteAt(atCycle uint64, reg, value byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	w := timedWrite{at: atCycle, reg: reg & 0x0f, value: value}
+	i := sort.Search(len(c.pending), func(i int) bool { return c.pending[i].at > w.at })
+	c.pending = append(c.pending, timedWrite{})
+	copy(c.pending[i+1:], c.pending[i:])
+	c.pending[i] = w
+}
+
+// PendingWrites reports how many scheduled writes have not yet taken effect.
+func (c *Chip) PendingWrites() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.pending)
+}
+
+// ClearPendingWrites discards every scheduled write that has not yet taken effect.
+func (c *Chip) ClearPendingWrites() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.pending = c.pending[:0]
 }
 
 // Cycles returns the total number of master clock cycles executed.
@@ -264,6 +336,35 @@ func (c *Chip) DrainMonoF32(dst []float32) int {
 	return c.samples.pop(dst)
 }
 
+// ChannelTapsEnabled reports whether per-channel PCM is being buffered.
+func (c *Chip) ChannelTapsEnabled() bool { return c.channelTaps }
+
+// DrainChannelF32 copies queued PCM for a single tone channel (0=A, 1=B, 2=C)
+// into dst and returns the sample count. It always returns 0 unless the chip
+// was created with Config.ChannelTaps set. The per-channel buffers advance in
+// lockstep with the mono buffer, so a channel level is its isolated
+// contribution to the same analog mix (the three do not sum exactly to the
+// mono output because the output stage is non-linear).
+func (c *Chip) DrainChannelF32(ch int, dst []float32) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.channelTaps || ch < 0 || ch > 2 {
+		return 0
+	}
+	return c.channelSamples[ch].pop(dst)
+}
+
+// BufferedChannelSamples reports how many per-channel PCM samples are queued
+// (0 when channel taps are disabled).
+func (c *Chip) BufferedChannelSamples() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.channelTaps {
+		return 0
+	}
+	return c.channelSamples[0].count
+}
+
 func (cfg Config) withDefaults() Config {
 	if cfg.ClockHz <= 0 {
 		cfg.ClockHz = defaultClockHz
@@ -298,12 +399,21 @@ func (c *Chip) resetLocked() {
 	c.samplePhase = 0
 	c.sampleAccum = 0
 	c.samples.reset()
+	c.channelAccum = [3]float64{}
+	for ch := range c.channelSamples {
+		c.channelSamples[ch].reset()
+	}
+	c.pending = c.pending[:0]
 	c.reloadEnvelopeLocked(0)
 	c.updatePortsLocked()
 }
 
 func (c *Chip) writeSelectedLocked(v byte) {
-	reg := c.selected & 0x0f
+	c.writeRegisterLocked(c.selected, v)
+}
+
+func (c *Chip) writeRegisterLocked(reg, v byte) {
+	reg &= 0x0f
 	c.registers[reg] = v
 
 	switch reg {
@@ -350,7 +460,7 @@ func (c *Chip) portBIsInputLocked() bool {
 }
 
 func (c *Chip) tickInternalLocked() {
-	for ch := 0; ch < 3; ch++ {
+	for ch := range 3 {
 		c.toneCounters[ch]++
 		if c.toneCounters[ch] >= c.tonePeriodLocked(ch) {
 			c.toneCounters[ch] = 0
@@ -444,12 +554,12 @@ func (c *Chip) advanceEnvelopeLocked() {
 	c.envVolume = c.envStep ^ c.envAttack
 }
 
-func (c *Chip) mixLevelLocked() float64 {
+func (c *Chip) mixLevelsLocked() (combined float64, solo [3]float32) {
 	mixer := c.registers[7]
 	envMask := 0
 	levels := [3]int{}
 
-	for ch := 0; ch < 3; ch++ {
+	for ch := range 3 {
 		toneDisabled := mixer&(1<<ch) != 0
 		noiseDisabled := mixer&(1<<(ch+3)) != 0
 		tonePass := toneDisabled || c.toneOutputs[ch]
@@ -467,23 +577,52 @@ func (c *Chip) mixLevelLocked() float64 {
 		levels[ch] = int(reg & 0x0f)
 	}
 
-	return float64(ym2149AnalogMixLevels[analogMixIndex(envMask, levels)])
+	combined = float64(ym2149AnalogMixLevels[analogMixIndex(envMask, levels)])
+
+	if c.channelTaps {
+		for ch := range 3 {
+			env := 0
+			if envMask&(1<<ch) != 0 {
+				env = 1
+			}
+			solo[ch] = ym2149AnalogMixLevels[analogMixIndex(env, [3]int{levels[ch], 0, 0})]
+		}
+	}
+	return combined, solo
 }
 
-func (c *Chip) integrateCycleLocked(level float64) {
-	nextPhase := c.samplePhase + uint64(c.cfg.OutputSampleRate)
-	if nextPhase < uint64(c.cfg.ClockHz) {
-		c.sampleAccum += level * float64(c.cfg.OutputSampleRate)
+func (c *Chip) integrateCycleLocked(level float64, solo [3]float32) {
+	rate := uint64(c.cfg.OutputSampleRate)
+	clock := uint64(c.cfg.ClockHz)
+
+	nextPhase := c.samplePhase + rate
+	if nextPhase < clock {
+		w := float64(rate)
+		c.sampleAccum += level * w
+		if c.channelTaps {
+			for ch := range 3 {
+				c.channelAccum[ch] += float64(solo[ch]) * w
+			}
+		}
 		c.samplePhase = nextPhase
 		return
 	}
 
-	firstWeight := uint64(c.cfg.ClockHz) - c.samplePhase
-	c.sampleAccum += level * float64(firstWeight)
-	c.samples.push(float32(c.sampleAccum / float64(c.cfg.ClockHz)))
+	firstWeight := float64(clock - c.samplePhase)
+	overflow := nextPhase - clock
 
-	overflow := nextPhase - uint64(c.cfg.ClockHz)
+	c.sampleAccum += level * firstWeight
+	c.samples.push(float32(c.sampleAccum / float64(clock)))
 	c.sampleAccum = level * float64(overflow)
+
+	if c.channelTaps {
+		for ch := range 3 {
+			c.channelAccum[ch] += float64(solo[ch]) * firstWeight
+			c.channelSamples[ch].push(float32(c.channelAccum[ch] / float64(clock)))
+			c.channelAccum[ch] = float64(solo[ch]) * float64(overflow)
+		}
+	}
+
 	c.samplePhase = overflow
 }
 
@@ -516,11 +655,8 @@ func (r *ringBuffer) pop(dst []float32) int {
 	if len(dst) == 0 || r.count == 0 {
 		return 0
 	}
-	n := len(dst)
-	if n > r.count {
-		n = r.count
-	}
-	for i := 0; i < n; i++ {
+	n := min(len(dst), r.count)
+	for i := range n {
 		dst[i] = r.data[r.read]
 		r.read = (r.read + 1) % len(r.data)
 	}

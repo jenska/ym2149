@@ -11,9 +11,17 @@ import (
 type MonoSource = audiostream.MonoSource
 type Reader = audiostream.Reader
 
+type StereoSource = audiostream.StereoSource
+type StereoReader = audiostream.StereoReader
+
 // NewReader creates a backend-neutral stereo PCM reader suitable for Ebiten.
 func NewReader(source MonoSource, framesPerRead int) *Reader {
 	return audiostream.NewReader(source, framesPerRead)
+}
+
+// NewStereoReader creates an Ebiten-ready reader from an interleaved stereo source.
+func NewStereoReader(source StereoSource, framesPerRead int) *StereoReader {
+	return audiostream.NewStereoReader(source, framesPerRead)
 }
 
 // EnsureContext reuses an existing audio context when compatible, or creates one.
@@ -34,6 +42,23 @@ func NewPlayer(source MonoSource, buffer time.Duration) (*audio.Player, *Reader,
 		return nil, nil, err
 	}
 	reader := NewReader(source, 1024)
+	player, err := ctx.NewPlayerF32(reader)
+	if err != nil {
+		return nil, nil, err
+	}
+	if buffer > 0 {
+		player.SetBufferSize(buffer)
+	}
+	return player, reader, nil
+}
+
+// NewStereoPlayer wires an interleaved StereoSource into an Ebiten F32 player.
+func NewStereoPlayer(source StereoSource, buffer time.Duration) (*audio.Player, *StereoReader, error) {
+	ctx, err := EnsureContext(source.OutputSampleRate())
+	if err != nil {
+		return nil, nil, err
+	}
+	reader := NewStereoReader(source, 1024)
 	player, err := ctx.NewPlayerF32(reader)
 	if err != nil {
 		return nil, nil, err

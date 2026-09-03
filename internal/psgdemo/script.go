@@ -125,13 +125,7 @@ func TonePeriodForFrequency(clockHz int, freq float64) uint16 {
 	if freq <= 0 {
 		return 1
 	}
-	period := int(float64(clockHz)/(16.0*freq) + 0.5)
-	if period < 1 {
-		period = 1
-	}
-	if period > 0x0fff {
-		period = 0x0fff
-	}
+	period := min(max(int(float64(clockHz)/(16.0*freq)+0.5), 1), 0x0fff)
 	return uint16(period)
 }
 

@@ -11,10 +11,7 @@ type fakeSource struct {
 }
 
 func (f *fakeSource) DrainMonoF32(dst []float32) int {
-	n := len(dst)
-	if n > len(f.samples) {
-		n = len(f.samples)
-	}
+	n := min(len(dst), len(f.samples))
 	copy(dst, f.samples[:n])
 	f.samples = f.samples[n:]
 	return n
