@@ -2,20 +2,20 @@
 
 Cycle-accurate YM2149F / Atari ST PSG emulation in Go.
 
-Release target: `v1.0.0`
+Latest release: `v1.1.0`
 
-This repository is intended to be reused later as the sound subsystem for a larger Atari ST emulator. The current focus is a reusable chip core with deterministic timing, backend-neutral audio rendering helpers, an Ebiten adapter, and a demo harness for quick listening and debugging.
+This repository is intended to be reused later as the sound subsystem for a larger Atari ST emulator. The current focus is a reusable chip core with deterministic timing, backend-neutral audio rendering helpers, an Ebiten adapter, a YM music-file player, and a demo harness for quick listening and debugging.
 
 ## Versioning
 
 - The root module path is `github.com/jenska/ym2149`.
-- The planned first stable release is `v1.0.0`.
-- This repository currently uses a single Go module. All packages under `emulation/`, `renderer/`, `internal/`, and `cmd/` are released together under the root module tag.
+- This repository uses a single Go module. All packages under `emulation/`, `renderer/`, `format/`, `internal/`, and `cmd/` are released together under the root module tag.
+- Requires Go 1.27 or newer.
 
 ## Installation
 
 ```sh
-go get github.com/jenska/ym2149@v1.0.0
+go get github.com/jenska/ym2149@v1.1.0
 ```
 
 ## Status
