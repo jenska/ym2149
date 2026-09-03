@@ -82,10 +82,7 @@ func (r *Reader) readFramesInto(dst []byte, frames int) (int, error) {
 	written := frames * 8
 
 	for frames > 0 {
-		chunk := frames
-		if chunk > len(r.monoBuffer) {
-			chunk = len(r.monoBuffer)
-		}
+		chunk := min(frames, len(r.monoBuffer))
 		read := r.source.DrainMonoF32(r.monoBuffer[:chunk])
 		if read < chunk {
 			for i := read; i < chunk; i++ {
@@ -94,7 +91,7 @@ func (r *Reader) readFramesInto(dst []byte, frames int) (int, error) {
 			r.underruns += uint64(chunk - read)
 		}
 
-		for i := 0; i < chunk; i++ {
+		for i := range chunk {
 			sample := clamp(r.monoBuffer[i], -1, 1)
 			bits := math.Float32bits(sample)
 			base := i * 8

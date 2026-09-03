@@ -2,9 +2,7 @@ GO ?= go
 GOFMT ?= gofmt
 DEMO_BIN ?= psgdemo
 DEMO_PKG := ./cmd/psgdemo
-GO_FILES := $(shell find emulation renderer internal cmd -name '*.go' -type f | sort)
-EBITEN_AUDIO_DIR := ./renderer/ebitenaudio
-AUDIOSTREAM_DIR := ./renderer/audiostream
+GO_FILES := $(shell find emulation renderer format internal cmd -name '*.go' -type f | sort)
 
 .PHONY: help fmt fmt-check test bench build build-demo run-demo run-demo-interactive tidy release-check ci clean
 
@@ -31,8 +29,6 @@ fmt-check:
 
 test:
 	$(GO) test ./...
-	cd $(AUDIOSTREAM_DIR) && $(GO) test ./...
-	cd $(EBITEN_AUDIO_DIR) && $(GO) test ./...
 
 bench:
 	$(GO) test ./... -run '^$$' -bench .

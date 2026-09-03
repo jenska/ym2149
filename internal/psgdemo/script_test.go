@@ -16,7 +16,7 @@ func TestDefaultSequenceAdvancesAndWritesRegisters(t *testing.T) {
 	}
 
 	initialReg := readReg(chip, 0)
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		seq.Tick(chip)
 	}
 	if got := readReg(chip, 0); got == initialReg {

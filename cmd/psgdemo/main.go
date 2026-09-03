@@ -5,16 +5,20 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"os"
 	"time"
 
 	ym2149 "github.com/jenska/ym2149/emulation"
 
+	"github.com/jenska/ym2149/format/ym"
 	"github.com/jenska/ym2149/internal/psgdemo"
 	"github.com/jenska/ym2149/renderer/atarist"
 	"github.com/jenska/ym2149/renderer/bandlimited"
 	"github.com/jenska/ym2149/renderer/ebitenaudio"
+	"github.com/jenska/ym2149/renderer/stereo"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
@@ -26,15 +30,19 @@ type demoMode string
 const (
 	modeScript           demoMode = "script"
 	modeInteractive      demoMode = "interactive"
+	modeFile             demoMode = "file"
 	demoSampleRate                = 48_000
 	demoOversampleFactor          = 4
 )
 
+type underrunReporter interface{ Underruns() uint64 }
+
 type demoGame struct {
-	mode demoMode
+	mode   demoMode
+	stereo bool
 
 	chip   *ym2149.Chip
-	reader *ebitenaudio.Reader
+	reader underrunReporter
 	player interface{ IsPlaying() bool }
 
 	tickRemainder int
@@ -42,47 +50,99 @@ type demoGame struct {
 
 	sequence *psgdemo.Sequencer
 	control  interactiveState
+
+	tune *ym.Player
 }
 
 func main() {
 	modeFlag := flag.String("mode", string(modeScript), "demo mode: script or interactive")
+	fileFlag := flag.String("file", "", "play a YM music file (.ym, compressed or raw) instead of the built-in demo")
+	stereoFlag := flag.Bool("stereo", false, "pan the three channels A-left / B-centre / C-right")
 	flag.Parse()
 
 	mode := demoMode(*modeFlag)
-	if mode != modeScript && mode != modeInteractive {
+	if *fileFlag != "" {
+		mode = modeFile
+	}
+	if mode != modeScript && mode != modeInteractive && mode != modeFile {
 		log.Fatalf("unsupported mode %q", mode)
 	}
 
+	const chipRate = demoSampleRate * demoOversampleFactor
+
 	chip := ym2149.New(ym2149.Config{
 		ClockHz:          2_000_000,
-		OutputSampleRate: demoSampleRate * demoOversampleFactor,
+		OutputSampleRate: chipRate,
 		BufferSamples:    4_096 * demoOversampleFactor,
+		ChannelTaps:      *stereoFlag,
 	})
-	decimator, err := bandlimited.New(chip, bandlimited.Config{
-		OversampleFactor: demoOversampleFactor,
-	})
+
+	var tune *ym.Player
+	if mode == modeFile {
+		data, err := os.ReadFile(*fileFlag)
+		if err != nil {
+			log.Fatal(err)
+		}
+		tune, err = ym.NewPlayerFromBytes(data, ym.PlayerConfig{
+			SampleRate:  chipRate,
+			Loop:        true,
+			ChannelTaps: *stereoFlag,
+		})
+		if err != nil {
+			log.Fatalf("%s: %v", *fileFlag, err)
+		}
+		chip = tune.Chip()
+	}
+
+	// A mono board-output stage: source -> bandlimited decimation -> ST filter.
+	board := func(src bandlimited.MonoSource) *atarist.Output {
+		dec, err := bandlimited.New(src, bandlimited.Config{OversampleFactor: demoOversampleFactor})
+		if err != nil {
+			log.Fatal(err)
+		}
+		return atarist.New(dec, atarist.Config{})
+	}
+
+	var (
+		audioPlayer *audio.Player
+		reader      underrunReporter
+		err         error
+	)
+	if *stereoFlag {
+		var chSrc stereo.ChannelSource = chip
+		if tune != nil {
+			chSrc = tune
+		}
+		split := stereo.NewSplitter(chSrc, stereo.ABC())
+		out := stereo.Interleave(board(split.Left()), board(split.Right()))
+		audioPlayer, reader, err = ebitenaudio.NewStereoPlayer(out, 20*time.Millisecond)
+	} else {
+		var src bandlimited.MonoSource = chip
+		if tune != nil {
+			src = tune
+		}
+		audioPlayer, reader, err = ebitenaudio.NewPlayer(board(src), 20*time.Millisecond)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
-	boardOut := atarist.New(decimator, atarist.Config{})
-	player, reader, err := ebitenaudio.NewPlayer(boardOut, 20*time.Millisecond)
-	if err != nil {
-		log.Fatal(err)
-	}
-	player.Play()
+	audioPlayer.Play()
 
 	game := &demoGame{
 		mode:     mode,
+		stereo:   *stereoFlag,
 		chip:     chip,
 		reader:   reader,
-		player:   player,
+		player:   audioPlayer,
 		sequence: psgdemo.NewSequencer(psgdemo.DefaultSequence()),
 		control:  defaultInteractiveState(),
+		tune:     tune,
 	}
 
-	if mode == modeScript {
+	switch mode {
+	case modeScript:
 		game.sequence.Reset(game.chip)
-	} else {
+	case modeInteractive:
 		game.control.apply(game.chip)
 	}
 
@@ -95,6 +155,11 @@ func main() {
 }
 
 func (g *demoGame) Update() error {
+	if g.mode == modeFile {
+		// The ym.Player advances its own chip as the audio backend drains it.
+		return nil
+	}
+
 	switch g.mode {
 	case modeScript:
 		g.sequence.Tick(g.chip)
@@ -125,9 +190,14 @@ func (g *demoGame) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{R: 21, G: 24, B: 28, A: 255})
 
 	ports := g.chip.Ports()
+	outMode := "mono"
+	if g.stereo {
+		outMode = "stereo (A<L  B·  C>R)"
+	}
 	status := fmt.Sprintf(
-		"YM2149 demo\n\nMode: %s (Tab toggles)\nCycles: %d\nBuffered mono samples: %d\nAudio underruns: %d\nPlayer active: %t\nPort A in/out: %02x / %02x\nPort B in/out: %02x / %02x\n",
+		"YM2149 demo\n\nMode: %s (Tab toggles)\nOutput: %s\nCycles: %d\nBuffered mono samples: %d\nAudio underruns: %d\nPlayer active: %t\nPort A in/out: %02x / %02x\nPort B in/out: %02x / %02x\n",
 		g.mode,
+		outMode,
 		g.chip.Cycles(),
 		g.chip.BufferedSamples(),
 		g.reader.Underruns(),
@@ -139,6 +209,16 @@ func (g *demoGame) Draw(screen *ebiten.Image) {
 	)
 
 	switch g.mode {
+	case modeFile:
+		s := g.tune.Song()
+		status += fmt.Sprintf(
+			"\nNow playing: %s\nAuthor: %s\nYM v%d  %d Hz frames  %d kHz clock\nFrame %d / %d\n%s\n",
+			nonEmpty(s.Name, "(untitled)"),
+			nonEmpty(s.Author, "(unknown)"),
+			s.Version, s.FrameHz, s.ClockHz/1000,
+			g.tune.Frame(), g.tune.TotalFrames(),
+			s.Comment,
+		)
 	case modeScript:
 		status += fmt.Sprintf("\nScript step: %s\n", g.sequence.CurrentName())
 		status += "Scripted sequence sweeps tone, envelope, and noise.\n"
@@ -161,6 +241,13 @@ func (g *demoGame) Draw(screen *ebiten.Image) {
 
 func (g *demoGame) Layout(_, _ int) (int, int) {
 	return 800, 480
+}
+
+func nonEmpty(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
 }
 
 type interactiveState struct {
