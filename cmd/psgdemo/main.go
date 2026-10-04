@@ -10,6 +10,7 @@ import (
 
 	ym2149 "github.com/jenska/ym2149/emulation"
 
+	"github.com/jenska/ym2149/format/sndh"
 	"github.com/jenska/ym2149/format/ym"
 	"github.com/jenska/ym2149/internal/psgdemo"
 	"github.com/jenska/ym2149/renderer/atarist"
@@ -37,6 +38,14 @@ const (
 
 type underrunReporter interface{ Underruns() uint64 }
 
+// tunePlayer is what the demo needs from a music-file player (ym or sndh).
+type tunePlayer interface {
+	DrainMonoF32([]float32) int
+	DrainChannelF32(int, []float32) int
+	OutputSampleRate() int
+	Chip() *ym2149.Chip
+}
+
 type demoGame struct {
 	mode   demoMode
 	stereo bool
@@ -51,12 +60,15 @@ type demoGame struct {
 	sequence *psgdemo.Sequencer
 	control  interactiveState
 
-	tune *ym.Player
+	tune     tunePlayer
+	ymTune   *ym.Player
+	sndhTune *sndh.Player
 }
 
 func main() {
 	modeFlag := flag.String("mode", string(modeScript), "demo mode: script or interactive")
-	fileFlag := flag.String("file", "", "play a YM music file (.ym, compressed or raw) instead of the built-in demo")
+	fileFlag := flag.String("file", "", "play a YM (.ym) or SNDH (.sndh) music file instead of the built-in demo")
+	subtuneFlag := flag.Int("subtune", 0, "SNDH subtune to play (default: the file's default subtune)")
 	stereoFlag := flag.Bool("stereo", false, "pan the three channels A-left / B-centre / C-right")
 	flag.Parse()
 
@@ -77,17 +89,32 @@ func main() {
 		ChannelTaps:      *stereoFlag,
 	})
 
-	var tune *ym.Player
+	var (
+		tune     tunePlayer
+		ymTune   *ym.Player
+		sndhTune *sndh.Player
+	)
 	if mode == modeFile {
 		data, err := os.ReadFile(*fileFlag)
 		if err != nil {
 			log.Fatal(err)
 		}
-		tune, err = ym.NewPlayerFromBytes(data, ym.PlayerConfig{
-			SampleRate:  chipRate,
-			Loop:        true,
-			ChannelTaps: *stereoFlag,
-		})
+		if f, perr := sndh.Parse(data); perr == nil {
+			sndhTune, err = sndh.NewPlayer(f, sndh.PlayerConfig{
+				SampleRate:  chipRate,
+				Subtune:     *subtuneFlag,
+				Loop:        true,
+				ChannelTaps: *stereoFlag,
+			})
+			tune = sndhTune
+		} else {
+			ymTune, err = ym.NewPlayerFromBytes(data, ym.PlayerConfig{
+				SampleRate:  chipRate,
+				Loop:        true,
+				ChannelTaps: *stereoFlag,
+			})
+			tune = ymTune
+		}
 		if err != nil {
 			log.Fatalf("%s: %v", *fileFlag, err)
 		}
@@ -137,6 +164,8 @@ func main() {
 		sequence: psgdemo.NewSequencer(psgdemo.DefaultSequence()),
 		control:  defaultInteractiveState(),
 		tune:     tune,
+		ymTune:   ymTune,
+		sndhTune: sndhTune,
 	}
 
 	switch mode {
@@ -210,13 +239,17 @@ func (g *demoGame) Draw(screen *ebiten.Image) {
 
 	switch g.mode {
 	case modeFile:
-		s := g.tune.Song()
+		if g.sndhTune != nil {
+			status += sndhStatus(g.sndhTune)
+			break
+		}
+		s := g.ymTune.Song()
 		status += fmt.Sprintf(
 			"\nNow playing: %s\nAuthor: %s\nYM v%d  %d Hz frames  %d kHz clock\nFrame %d / %d\n%s\n",
 			nonEmpty(s.Name, "(untitled)"),
 			nonEmpty(s.Author, "(unknown)"),
 			s.Version, s.FrameHz, s.ClockHz/1000,
-			g.tune.Frame(), g.tune.TotalFrames(),
+			g.ymTune.Frame(), g.ymTune.TotalFrames(),
 			s.Comment,
 		)
 	case modeScript:
@@ -241,6 +274,29 @@ func (g *demoGame) Draw(screen *ebiten.Image) {
 
 func (g *demoGame) Layout(_, _ int) (int, int) {
 	return 800, 480
+}
+
+func sndhStatus(p *sndh.Player) string {
+	f := p.File()
+	length := "unknown"
+	if d := p.Duration(); d > 0 {
+		length = d.Round(time.Second).String()
+	}
+	s := fmt.Sprintf(
+		"\nNow playing: %s\nComposer: %s\nYear: %s  Ripper: %s\nSNDH subtune %d / %d  replay %v %d Hz\nTime %s / %s\n",
+		nonEmpty(f.Title, "(untitled)"),
+		nonEmpty(f.Composer, "(unknown)"),
+		nonEmpty(f.Year, "?"), nonEmpty(f.Ripper, "?"),
+		p.Subtune(), f.Subtunes, f.Replay.Timer, f.Replay.Hz,
+		p.Position().Round(time.Second), length,
+	)
+	if names := f.SubtuneNames; len(names) >= p.Subtune() {
+		s += names[p.Subtune()-1] + "\n"
+	}
+	if err := p.Err(); err != nil {
+		s += fmt.Sprintf("Stopped: %v\n", err)
+	}
+	return s
 }
 
 func nonEmpty(s, fallback string) string {

@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+
+- `format/sndh`: player for SNDH files (Atari ST music drivers). The 68000
+  driver runs on `github.com/jenska/m68kemu` inside a minimal PAL Atari ST:
+  4 MB RAM, the PSG with cycle-timestamped register writes, an MC68901 MFP
+  (timers A-D, interrupt controller, software/auto EOI), the VBL interrupt
+  and a small TOS stand-in (system variables, Timer C tick, GEMDOS/BIOS/XBIOS
+  calls) written in 68000 assembly and assembled at startup with
+  `github.com/jenska/m68kasm`.
+- `sndh.Parse` reads all SNDH v2.2 header tags (`TITL`, `COMM`, `RIPP`,
+  `CONV`, `YEAR`, `##`, `#!`, `#!SN`, `TA`/`TB`/`TC`/`TD`/`!V`, `FRMS`,
+  `TIME`, `FLAG`, `HDNS`); ICE! 2.4 packed files are depacked transparently
+  (`sndh.DepackICE`).
+- `sndh.Player`: mono or per-channel source like `ym.Player`, with subtune
+  selection, header-length based stopping and crash reporting.
+- `cmd/psgdemo`: `-file` also plays `.sndh` files; `-subtune n` selects the
+  subtune.
+- `sndh.Player.Seek`: jump to a position; the skipped time is emulated
+  without sound (about 70x realtime) and the PSG resumes with the driver's
+  registers.
+- `cmd/sndplayer`: terminal SNDH player modelled on SNDH-Player: song
+  details, per-voice braille oscilloscopes and level meters, seekable time
+  bar (keyboard and mouse), file and subtune lists, Single/Loop/Continuous/
+  Random play modes, ABC/ACB/mono stereo, ZIP archive and directory
+  playlists, and WAV export (`w` key or `-wav`).
+
 ## [1.1.0] - 2026-09-03
 
 ### Added

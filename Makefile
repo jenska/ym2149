@@ -2,9 +2,11 @@ GO ?= go
 GOFMT ?= gofmt
 DEMO_BIN ?= psgdemo
 DEMO_PKG := ./cmd/psgdemo
+PLAYER_BIN ?= sndplayer
+PLAYER_PKG := ./cmd/sndplayer
 GO_FILES := $(shell find emulation renderer format internal cmd -name '*.go' -type f | sort)
 
-.PHONY: help fmt fmt-check test bench build build-demo run-demo run-demo-interactive tidy release-check ci clean
+.PHONY: help fmt fmt-check test bench build build-demo build-sndplayer run-demo run-demo-interactive tidy release-check ci clean
 
 help:
 	@printf '%s\n' \
@@ -15,6 +17,7 @@ help:
 		'  make bench                 Run benchmark suite' \
 		'  make build                 Build the demo binary' \
 		'  make build-demo            Build the demo binary' \
+		'  make build-sndplayer       Build the sndplayer terminal player' \
 		'  make run-demo              Run the scripted demo' \
 		'  make run-demo-interactive  Run the interactive demo' \
 		'  make tidy                  Tidy Go modules' \
@@ -33,10 +36,13 @@ test:
 bench:
 	$(GO) test ./... -run '^$$' -bench .
 
-build: build-demo
+build: build-demo build-sndplayer
 
 build-demo:
 	$(GO) build -o $(DEMO_BIN) $(DEMO_PKG)
+
+build-sndplayer:
+	$(GO) build -o $(PLAYER_BIN) $(PLAYER_PKG)
 
 run-demo:
 	$(GO) run $(DEMO_PKG) -mode script
@@ -52,6 +58,7 @@ release-check: test build-demo
 ci: fmt-check test
 	$(GO) vet ./...
 	$(GO) build $(DEMO_PKG)
+	$(GO) build -o /dev/null $(PLAYER_PKG)
 
 clean:
-	rm -f $(DEMO_BIN)
+	rm -f $(DEMO_BIN) $(PLAYER_BIN)

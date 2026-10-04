@@ -36,8 +36,10 @@ go get github.com/jenska/ym2149@v1.1.0
 - `renderer/stereo`: per-channel panning (ABC / ACB / mono) into a stereo pair
 - `renderer/ebitenaudio`: Ebiten audio reader/player helpers
 - `format/ym`: YM2!/YM3!/YM3b/YM5!/YM6! music-file decoder and replayer
+- `format/sndh`: SNDH music-file player (68000 driver on an emulated minimal Atari ST)
 - `internal/psgdemo`: shared scripted demo logic
 - `cmd/psgdemo`: Ebiten demo app
+- `cmd/sndplayer`: terminal SNDH player with oscilloscopes
 
 ## Design Notes
 
@@ -273,6 +275,58 @@ hardware. Digidrum samples are replayed at 4-bit volume-register resolution;
 the obsolete `YM4!` format and MADMAX-style `YM2!` embedded drums are not
 supported.
 
+## SNDH Music Files
+
+The `github.com/jenska/ym2149/format/sndh` package plays
+[SNDH](https://sndh.atari.org) files. An SNDH file holds the original 68000
+music driver, so playing one means running real Atari ST code: the package
+boots a minimal ST around the [`m68kemu`](https://github.com/jenska/m68kemu)
+CPU core and feeds the PSG writes it makes into the emulation core with
+cycle-exact timestamps (the CPU runs at exactly 4x the PSG clock).
+
+- `sndh.Parse(data []byte) (*File, error)` reads the header: title, composer,
+  ripper, converter, year, subtune count, default subtune, subtune names
+  (`#!SN`), replay timer and rate (`TA`/`TB`/`TC`/`TD`/`!V`), lengths
+  (`FRMS`, or the older `TIME`) and `FLAG`. ICE! 2.4 packed files (most of
+  the archive) are depacked transparently; `sndh.DepackICE` is exported too.
+- `sndh.NewPlayer(file, sndh.PlayerConfig{...})` (or `sndh.NewPlayerFromBytes`)
+  runs the subtune's INIT routine and returns a source with the same shape as
+  `ym.Player`: mono by default, a `renderer/stereo` channel source with
+  `ChannelTaps`. `Subtune` selects the subtune (1-based, 0 = default). Without
+  `Loop`, playback stops at the length given in the header; tunes without a
+  length play forever.
+
+```go
+tune, err := sndh.NewPlayerFromBytes(data, sndh.PlayerConfig{
+	SampleRate: 48_000 * 4, // feed renderer/bandlimited at 4x oversampling
+	Subtune:    0,          // the file's default subtune
+})
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println(tune.File().Title, tune.Duration())
+
+decimator, _ := bandlimited.New(tune, bandlimited.Config{OversampleFactor: 4})
+board := atarist.New(decimator, atarist.Config{})
+```
+
+The emulated machine is a PAL ST with 4 MB of RAM:
+
+- MC68901 MFP: all four timers in delay mode, interrupt enable/pending/
+  in-service/mask registers, software and automatic end-of-interrupt, on
+  interrupt level 6. Drivers that use Timer A/B/D for SID voices, digidrums or
+  sync-buzzer effects get real timer interrupts.
+- VBL on level 4 at 50.05 Hz, including the TOS VBL queue.
+- A small TOS stand-in ([`format/sndh/tos.asm`](format/sndh/tos.asm),
+  assembled at startup with [`m68kasm`](https://github.com/jenska/m68kasm)):
+  the OS header, system variables, the 200 Hz Timer C tick with `etv_timer`,
+  and the GEMDOS/BIOS/XBIOS calls drivers actually use (`Super`, `Malloc`,
+  `Setexc`, `Xbtimer`, `Jenabint`/`Jdisint`, `Mfpint`, `Giaccess`,
+  `Ongibit`/`Offgibit`, `Supexec`, `Kbdvbase`, ...).
+- PLAY is called the way SND Player does it: `TC` rates that divide 200 Hz
+  are derived from the TOS Timer C tick, other `TC` rates reprogram Timer C,
+  `TA`/`TB`/`TD` program that timer, and `!V` plays from the VBL.
+
 ## Ebiten Audio
 
 The Ebiten adapter lives in `renderer/ebitenaudio`.
@@ -311,6 +365,13 @@ cd cmd/psgdemo
 go run . -file path/to/tune.ym
 ```
 
+SNDH files work the same way; `-subtune n` picks a subtune:
+
+```sh
+cd cmd/psgdemo
+go run . -file path/to/tune.sndh -subtune 2
+```
+
 Add `-stereo` to any mode to pan the channels A-left / B-centre / C-right
 (`emulation` channel taps → `renderer/stereo` → dual `bandlimited`+`atarist`
 → `renderer/audiostream` stereo → `renderer/ebitenaudio`):
@@ -330,6 +391,61 @@ Interactive controls:
 - `E`: toggle envelope mode
 - `[` / `]`: change envelope shape
 - `Tab`: switch between scripted and interactive modes
+
+## sndplayer
+
+`cmd/sndplayer` is a terminal SNDH player in the spirit of Arnaud Carré's
+[SNDH-Player](https://github.com/arnaud-carre/sndh-player): song details,
+per-voice braille oscilloscopes with level meters, a seekable time bar, a
+playlist and a subtune list. It takes files, directories (searched
+recursively) and ZIP archives such as the SNDH archive download, and plays
+through the same `renderer/stereo` → `renderer/bandlimited` →
+`renderer/atarist` chain as the demo, with audio output via oto.
+
+```sh
+go install github.com/jenska/ym2149/cmd/sndplayer@latest
+sndplayer sndh_lf.zip
+sndplayer -mode loop -subtune 3 tune.sndh
+sndplayer -wav out.wav -subtune 2 tune.sndh   # render to WAV and exit
+```
+
+```text
+ ♫ sndplayer · SNDH player · YM2149 + 68000          ▶ playing · mode Continuous · stereo ABC
+╭─ Song ───────────────────────────────────────────────────────────────────────────────────╮
+│ Title     Bug Bash                              Year    1991                             │
+│ Composer  Rob Brooks                            Subtune 3 of 6                           │
+│ Ripper    Grazey/PHF                            Replay  Timer C at 50 Hz                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Voice A ───────────────────╮╭─ Voice B ───────────────────╮╭─ Voice C ──────────────────╮
+│                             ││⡏⠉⠉⠉⢹    ⡏⠉⠉⠉⠉⡇   ⢸⠉⠉⠉⠉⡇     ││                            │
+│⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤││⡇   ⢸    ⡇    ⡇   ⢸    ⡇    ││⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤│
+│                             ││⠃   ⠘⠒⠒⠒⠒⠃    ⠓⠒⠒⠒⠚    ⠓⠒⠒  ││                            │
+│ ░░░░░░░░░░░░░░░░░░░░░░░░░░░ ││ █████░░░░░░░░░░░░░░░░░░░░░░ ││ ░░░░░░░░░░░░░░░░░░░░░░░░░░ │
+╰─────────────────────────────╯╰─────────────────────────────╯╰────────────────────────────╯
+ ▶ 00:01 ━●──────────────────────────────────────────────────────────────────────── 01:10
+╭─ Files 2/3 ──────────────────────────────────────────╮╭─ Subtunes 3/6 ────────────────────╮
+│  aerius.snd · Aerius                                 ││   1 *                       01:48 │
+│♪ bugbash.snd · Bug Bash                              ││   2                         00:39 │
+│  doodbug.snd · Doodle Bug                            ││♪  3                         01:10 │
+╰──────────────────────────────────────────────────────╯╰───────────────────────────────────╯
+```
+
+| Key | Action |
+| --- | --- |
+| `space` | pause / resume (restart a finished tune) |
+| `←` `→` / `<` `>` | seek 5 s / 30 s; `0`–`9` jump to 0–90 % |
+| `tab`, `↑` `↓` `PgUp` `PgDn` `Home` `End` | move between and within the file and subtune lists |
+| `enter` | play the selected file or subtune |
+| `n` `p` / `N` `P` | next / previous subtune / file; `r` random tune |
+| `m` | play mode: Single, Loop, Continuous (next subtune, then next file), Random |
+| `s` | stereo: ABC, ACB, mono |
+| `w` | export the playing subtune to `<file>-<subtune>.wav` |
+| `q` | quit |
+
+The mouse works too: click the time bar to seek, click a list row to select
+it and again to play it, and scroll the lists with the wheel. Subtunes without
+a length in the header count as `-length` long (default 3 minutes) in the
+Single, Continuous and Random modes. Set `NO_COLOR` for a monochrome UI.
 
 ## Testing
 
@@ -358,6 +474,15 @@ The repository includes:
 - timestamped-write scheduling tests and per-channel tap isolation tests
 - stereo panning / splitter tests, including a chip → hard-pan integration check
 
+- ICE! depacker round trips (against a test-only packer), SNDH header parsing,
+  MFP timer/interrupt tests, and SNDH replay tests that assemble small 68000
+  drivers to check replay rates, timer interrupts, TOS calls, subtunes,
+  lengths and crash handling
+
+`format/sndh` has an opt-in corpus check too: point `SNDH_CORPUS_DIR` at a
+folder of `.sndh`/`.snd` files and run
+`go test ./format/sndh/ -run ExternalSNDHCorpus -v`.
+
 `format/ym` also carries an opt-in corpus check: point `YM_CORPUS_DIR` at a
 folder of real `<name>.ym` files (with `<name>.ym.ref` reference
 decompressions) and run `go test ./format/ym/ -run ExternalYMCorpus`.
@@ -366,6 +491,7 @@ decompressions) and run `go test ./format/ym/ -run ExternalYMCorpus`.
 
 - YM2149F is the target; AY-specific compatibility behavior is not implemented yet.
 - `format/ym` replays digidrums at 4-bit volume-register resolution and does not support the obsolete `YM4!` format, MADMAX `YM2!` embedded drums, or the `YMT`/`MIX` tracker variants.
+- `format/sndh` emulates only the YM2149 side of the machine: STe/Falcon DMA sound, the blitter, the DSP and MFP event-count mode (Timer B counting scanlines, Timer A counting DMA frames) are not emulated, so tunes that rely on them play without those parts. The machine is a plain ST with no cookie-jar entries beyond `_MCH` = ST and `_SND` = PSG.
 - The core mixes to mono; `renderer/stereo` pans the per-channel taps, but each tap is that channel's contribution with the other two muted, so the three do not recombine exactly through the non-linear output stage.
 - The current ST board stage is an approximation built from simple high-pass and low-pass sections, not yet a traced schematic-accurate analog model.
 - The library models chip-level port behavior, not the full Atari ST MMIO map.
