@@ -1,8 +1,8 @@
-// Command sndplayer plays SNDH music files in the terminal, with per-voice
+// Command sndplayer plays SNDH and YM music files in the terminal, with per-voice
 // oscilloscopes, a subtune list, song details, seeking, play modes and WAV
 // export.
 //
-//	sndplayer [flags] file.sndh|dir|archive.zip ...
+//	sndplayer [flags] file.sndh|file.ym|dir|archive.zip ...
 package main
 
 import (
@@ -24,7 +24,7 @@ func main() {
 	length := flag.Duration("length", 3*time.Minute, "play time for subtunes without a length in the header")
 	wav := flag.String("wav", "", "render the first file's subtune to this WAV file and exit")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: sndplayer [flags] file.sndh|directory|archive.zip ...\n\n")
+		fmt.Fprintf(os.Stderr, "usage: sndplayer [flags] file.sndh|file.ym|directory|archive.zip ...\n\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nkeys: space pause · ←/→ seek 5s · </> seek 30s · 0-9 jump · tab focus · ↑/↓ select · enter play\n"+
 			"      n/p next/prev subtune · N/P next/prev file · r random · m mode · s stereo · w export WAV · q quit\n")

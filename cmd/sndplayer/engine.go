@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jenska/ym2149/format/sndh"
 	"github.com/jenska/ym2149/renderer/atarist"
 	"github.com/jenska/ym2149/renderer/audiostream"
 	"github.com/jenska/ym2149/renderer/bandlimited"
@@ -90,13 +89,8 @@ func buildChain(src stereo.ChannelSource, pan stereo.Panning) (*stereo.Splitter,
 	return split, stereo.Interleave(left, right), nil
 }
 
-func newTunePlayer(f *sndh.File, subtune, rate int) (*sndh.Player, error) {
-	return sndh.NewPlayer(f, sndh.PlayerConfig{
-		SampleRate:  rate * oversample,
-		Subtune:     subtune,
-		Loop:        true, // the UI decides when a tune ends
-		ChannelTaps: true,
-	})
+func newTunePlayer(t *tune, subtune, rate int) (tunePlayer, error) {
+	return t.open(subtune, rate*oversample)
 }
 
 const scopeLen = 4096 // per-voice history at the output rate
@@ -104,7 +98,7 @@ const scopeLen = 4096 // per-voice history at the output rate
 // tap records every voice's PCM, decimated to the output rate, for the
 // oscilloscopes.
 type tap struct {
-	src   *sndh.Player
+	src   tunePlayer
 	ring  [3][scopeLen]float32
 	pos   [3]int
 	phase [3]int
@@ -134,7 +128,7 @@ type engine struct {
 	pan           panMode
 	defaultLength time.Duration
 
-	player *sndh.Player
+	player tunePlayer
 	tap    *tap
 	split  *stereo.Splitter
 	reader *audiostream.StereoReader
@@ -149,7 +143,7 @@ func newEngine(rate int, mode playMode, pan panMode, defaultLength time.Duration
 }
 
 // load starts subtune of f from the beginning.
-func (e *engine) load(f *sndh.File, subtune int) error {
+func (e *engine) load(f *tune, subtune int) error {
 	p, err := newTunePlayer(f, subtune, e.rate)
 	if err != nil {
 		return err

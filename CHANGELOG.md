@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+
+- `ym.Player`: `Seek`, `Position` (keeps counting across loops) and
+  `Duration`. Seeking restarts the YM5/YM6 effects and restores the last
+  envelope shape written before the new frame.
+- `cmd/sndplayer`: plays YM files (`.ym`, LHA-packed or raw) alongside SNDH,
+  in playlists, folders and ZIP archives; the format is detected by content.
+  Seeking, play modes, oscilloscopes and WAV export work for both formats.
+
 ## [1.2.0] - 2026-10-04
 
 ### Added

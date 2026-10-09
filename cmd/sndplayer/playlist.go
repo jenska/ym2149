@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/jenska/ym2149/format/sndh"
 )
 
 // entry is one playlist item: a file on disk or inside a ZIP archive. It is
@@ -20,24 +18,19 @@ type entry struct {
 	name string // display name
 	load func() ([]byte, error)
 
-	file *sndh.File
+	file *tune
 	err  error
 }
 
-func (e *entry) parse() (*sndh.File, error) {
+func (e *entry) parse() (*tune, error) {
 	if e.file == nil && e.err == nil {
 		data, err := e.load()
 		if err == nil {
-			e.file, err = sndh.Parse(data)
+			e.file, err = parseTune(e.name, data)
 		}
 		e.err = err
 	}
 	return e.file, e.err
-}
-
-func isTuneName(name string) bool {
-	ext := strings.ToLower(filepath.Ext(name))
-	return ext == ".sndh" || ext == ".snd"
 }
 
 // buildPlaylist expands files, directories (recursively) and ZIP archives.
@@ -84,7 +77,7 @@ func buildPlaylist(args []string) ([]*entry, error) {
 		}
 	}
 	if len(list) == 0 {
-		return nil, fmt.Errorf("no .sndh or .snd files found")
+		return nil, fmt.Errorf("no .sndh, .snd or .ym files found")
 	}
 	return list, nil
 }

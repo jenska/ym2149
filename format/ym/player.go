@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"slices"
+	"time"
 
 	ym2149 "github.com/jenska/ym2149/emulation"
 )
@@ -47,6 +48,7 @@ type Player struct {
 	taps           bool
 
 	frame    int
+	played   int // frames rendered since the start, across loops
 	finished bool
 
 	mono    []float32    // unconsumed mono PCM (taps off)
@@ -152,6 +154,48 @@ func (p *Player) TotalFrames() int { return len(p.song.Frames) }
 // Finished reports whether a non-looping song has played its last frame.
 func (p *Player) Finished() bool { return p.finished }
 
+// Duration reports the un-looped length of the song.
+func (p *Player) Duration() time.Duration {
+	return time.Duration(len(p.song.Frames)) * time.Second / time.Duration(p.frameHz)
+}
+
+// Position reports the playing time so far. It keeps counting across loops.
+func (p *Player) Position() time.Duration {
+	return time.Duration(p.played) * time.Second / time.Duration(p.frameHz)
+}
+
+// Seek moves playback to position d, measured like Position: with Loop, a
+// position past the end lands inside the loop. Effects restart and the last
+// envelope shape written before the new frame is restored.
+func (p *Player) Seek(d time.Duration) {
+	n := len(p.song.Frames)
+	target := int(max(d, 0) * time.Duration(p.frameHz) / time.Second)
+	p.played = target
+	p.finished = false
+	switch {
+	case target < n:
+		p.frame = target
+	case p.cfg.Loop:
+		p.frame = p.song.LoopFrame + (target-n)%(n-p.song.LoopFrame)
+	default:
+		p.frame, p.played, p.finished = n, n, true
+	}
+	p.resetEffects()
+	p.mono = p.mono[:0]
+	for ch := range p.channel {
+		p.channel[ch] = p.channel[ch][:0]
+	}
+	if p.song.Version >= 3 {
+		for f := min(p.frame, n) - 1; f >= 0; f-- {
+			if r13 := p.song.Frames[f][13]; r13 != 0xff {
+				p.chip.SelectRegister(13)
+				p.chip.WriteData(r13 & 0x0f)
+				break
+			}
+		}
+	}
+}
+
 // DrainMonoF32 fills dst with mono PCM, advancing the song as needed. It returns
 // the number of samples written, which is < len(dst) only once a non-looping
 // song is exhausted. It returns 0 when PlayerConfig.ChannelTaps is set (drain
@@ -228,6 +272,7 @@ func (p *Player) renderFrame() {
 		p.stepDrain(p.cyclesPerFrame - cur)
 	}
 	p.frame++
+	p.played++
 }
 
 func (p *Player) stepDrain(cycles uint32) {

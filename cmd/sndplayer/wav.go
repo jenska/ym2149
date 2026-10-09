@@ -8,14 +8,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/jenska/ym2149/format/sndh"
 	"github.com/jenska/ym2149/renderer/stereo"
 )
 
 // exportWAV renders length of a subtune to a 16-bit stereo WAV file, through
 // the same filter chain as live playback. progress, if set, receives values
 // from 0 to 1.
-func exportWAV(path string, f *sndh.File, subtune int, length time.Duration, rate int, pan stereo.Panning, progress func(float64)) error {
+func exportWAV(path string, f *tune, subtune int, length time.Duration, rate int, pan stereo.Panning, progress func(float64)) error {
 	p, err := newTunePlayer(f, subtune, rate)
 	if err != nil {
 		return err

@@ -299,3 +299,103 @@ func TestExportWAV(t *testing.T) {
 		t.Errorf("final progress %v", last)
 	}
 }
+
+// tinyYM is a YM3! dump of n frames (50 Hz) holding a tone on voice A.
+func tinyYM(n int) []byte {
+	out := []byte("YM3!")
+	plane := make([]byte, 14*n)
+	for f := range n {
+		for r, v := range []byte{0x40, 0, 0, 0, 0, 0, 0, 0x3e, 0x0f, 0, 0, 0, 0, 0} {
+			plane[r*n+f] = v
+		}
+	}
+	return append(out, plane...)
+}
+
+func newMixedApp(t *testing.T) *app {
+	t.Helper()
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "1-first.sndh"), tinySNDH("S-tune"), 0o644)
+	os.WriteFile(filepath.Join(dir, "2-second.ym"), tinyYM(50), 0o644)
+	list, err := buildPlaylist([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("playlist has %d entries, want 2", len(list))
+	}
+	return newApp(newEngine(8000, modeContinuous, panABC, time.Minute), list, 8000)
+}
+
+func TestYMPlayback(t *testing.T) {
+	a := newMixedApp(t)
+	if err := a.play(1, 0); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := a.playingFile()
+	if f.Format != "YM3" || f.Subtunes != 1 || f.Duration(1) != time.Second {
+		t.Fatalf("YM tune: format %q, %d subtunes, %v", f.Format, f.Subtunes, f.Duration(1))
+	}
+	a.eng.Read(make([]byte, 8000*8/4))
+	frame := frameText(a.draw(100, 30))
+	for _, want := range []string{"Format", "YM3 register dump, 50 frames", "Rate", "50 Hz, PSG at 2.000 MHz", "Subtune 1 of 1", "♪ 2-second.ym", "♪  1 *", "00:01"} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("frame lacks %q:\n%s", want, frame)
+		}
+	}
+	if !strings.ContainsAny(frame, "⠁⠂⠄⡀⠈⠐⠠⢀⣀⠤⠒⠉") {
+		t.Error("no oscilloscope trace for the YM tune")
+	}
+
+	a.seekBy(500 * time.Millisecond)
+	if pos := a.eng.snapshot(0).position; pos < 700*time.Millisecond || pos > 800*time.Millisecond {
+		t.Errorf("YM seek landed at %v, want ~0.75s", pos)
+	}
+
+	// The 1 s YM tune ends; continuous mode wraps to the SNDH file.
+	buf := make([]byte, 8000*8/10)
+	for range 5 {
+		a.eng.Read(buf)
+	}
+	select {
+	case <-a.eng.endCh:
+	default:
+		t.Fatal("no end signal for the YM tune")
+	}
+	a.tuneEnded()
+	if a.playFile != 0 || a.playSub != 1 {
+		t.Errorf("after the YM tune: playing %d/%d, want the SNDH file", a.playFile, a.playSub)
+	}
+	a.handle(event{key: keyRune, r: 'n'})
+	a.handle(event{key: keyRune, r: 'n'})
+	if a.playFile != 1 {
+		t.Errorf("n from the last SNDH subtune should reach the YM file, playing %d", a.playFile)
+	}
+}
+
+func TestYMExportWAV(t *testing.T) {
+	f, err := parseTune("x.ym", tinyYM(25))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "ym.wav")
+	if err := exportWAV(path, f, 1, f.Duration(1), 8000, panMono.panning(), nil); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	if got, want := len(data)-44, 4000*4; got != want {
+		t.Errorf("%d data bytes, want %d (0.5 s)", got, want)
+	}
+}
+
+func TestParseTuneErrors(t *testing.T) {
+	if _, err := parseTune("bad.ym", []byte("YM9!garbage")); err == nil || !strings.Contains(err.Error(), "ym:") {
+		t.Errorf("bad .ym file: %v, want the YM parser's error", err)
+	}
+	if _, err := parseTune("bad.sndh", []byte("not a tune at all")); err == nil || !strings.Contains(err.Error(), "SNDH") {
+		t.Errorf("bad .sndh file: %v, want the SNDH parser's error", err)
+	}
+	if !isTuneName("X.YM") || !isTuneName("a.SnDh") || isTuneName("a.txt") {
+		t.Error("isTuneName")
+	}
+}

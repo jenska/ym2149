@@ -3,6 +3,7 @@ package ym
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 func drainAll(t *testing.T, p *Player, n int) []float32 {
@@ -210,4 +211,65 @@ func mustPlayer(t *testing.T, s *Song) *Player {
 		t.Fatal(err)
 	}
 	return p
+}
+
+func TestPlayerSeek(t *testing.T) {
+	// Frame i plays tone period i+1, so the period register shows which
+	// frame is playing; frame 2 sets envelope shape 0x0a.
+	frames := make([][14]byte, 50)
+	for i := range frames {
+		frames[i] = [14]byte{byte(i + 1), 0, 0, 0, 0, 0, 0, 0x3e, 0x0c, 0, 0, 0, 0, 0xff}
+	}
+	frames[2][13] = 0x0a
+	loop := 10
+	s, err := Parse(buildYM3(frames, &loop))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Version != 3 {
+		t.Fatalf("version %d", s.Version)
+	}
+	period := func(p *Player) byte {
+		p.Chip().SelectRegister(0)
+		return p.Chip().ReadData()
+	}
+
+	p, err := NewPlayer(s, PlayerConfig{SampleRate: 8000, Loop: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Duration() != time.Second {
+		t.Fatalf("Duration = %v, want 1s", p.Duration())
+	}
+	drainAll(t, p, 800) // 5 frames
+
+	p.Seek(600 * time.Millisecond) // frame 30
+	if p.Frame() != 30 || p.Position() != 600*time.Millisecond {
+		t.Fatalf("after seek: frame %d position %v", p.Frame(), p.Position())
+	}
+	drainAll(t, p, 160) // play frame 30
+	if got := period(p); got != 31 {
+		t.Errorf("playing period %d after seeking to frame 30, want 31", got)
+	}
+	p.Chip().SelectRegister(13)
+	if got := p.Chip().ReadData(); got != 0x0a {
+		t.Errorf("envelope shape %#x, want 0x0a restored", got)
+	}
+
+	// Past the end: lands inside the loop, position keeps counting.
+	p.Seek(1500 * time.Millisecond) // 75 frames = 50 + 25 -> loop frame 10 + 25
+	if p.Frame() != 35 || p.Position() != 1500*time.Millisecond {
+		t.Errorf("looped seek: frame %d position %v, want 35 and 1.5s", p.Frame(), p.Position())
+	}
+
+	// Without Loop a seek past the end finishes the song.
+	np := mustPlayer(t, s)
+	np.Seek(2 * time.Second)
+	if !np.Finished() || np.DrainMonoF32(make([]float32, 16)) != 0 {
+		t.Error("seek past the end of a non-looping song should finish it")
+	}
+	np.Seek(0)
+	if np.Finished() || len(drainAll(t, np, 1000)) != 1000 {
+		t.Error("seek back to the start should resume playback")
+	}
 }

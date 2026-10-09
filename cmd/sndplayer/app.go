@@ -9,8 +9,6 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
-
-	"github.com/jenska/ym2149/format/sndh"
 )
 
 type focus int
@@ -69,7 +67,7 @@ func (a *app) message() (string, style) {
 	return "", stNormal
 }
 
-func (a *app) playingFile() (*sndh.File, error) {
+func (a *app) playingFile() (*tune, error) {
 	if a.playFile < 0 {
 		return nil, nil
 	}

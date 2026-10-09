@@ -275,7 +275,7 @@ func (a *app) draw(w, h int) *canvas {
 
 	// Header.
 	c.fill(0, 0, w, ' ', stHeader)
-	c.text(1, 0, "♫ sndplayer · SNDH player · YM2149 + 68000", stHeader, w-2)
+	c.text(1, 0, "♫ sndplayer · SNDH & YM player · YM2149 + 68000", stHeader, w-2)
 	state := "■ stopped"
 	switch {
 	case !st.loaded:
@@ -295,7 +295,7 @@ func (a *app) draw(w, h int) *canvas {
 	f, ferr := a.playingFile()
 	c.box(0, 1, w, 6, "Song", stBorder)
 	half := (w - 4) / 2
-	field := func(x, y int, label, value string, width int) {
+	put := func(x, y int, label, value string, width int) {
 		n := c.text(x, y, label, stLabel, width)
 		c.text(x+n, y, clean(value), stValue, width-n)
 	}
@@ -305,18 +305,13 @@ func (a *app) draw(w, h int) *canvas {
 		if sub >= 1 && sub <= len(f.SubtuneNames) {
 			subName = " · " + f.SubtuneNames[sub-1]
 		}
-		field(2, 2, "Title     ", f.Title, half)
-		field(2, 3, "Composer  ", f.Composer, half)
-		field(2, 4, "Ripper    ", f.Ripper, half)
-		field(2, 5, "Converter ", f.Converter, half)
-		field(2+half, 2, "Year    ", f.Year, w-half-4)
-		field(2+half, 3, "Subtune ", fmt.Sprintf("%d of %d%s", sub, f.Subtunes, subName), w-half-4)
-		field(2+half, 4, "Replay  ", fmt.Sprintf("%v at %d Hz", f.Replay.Timer, f.Replay.Hz), w-half-4)
-		flags := f.Flags
-		if f.Packed {
-			flags = strings.TrimSpace(flags + " (ICE! packed)")
+		for i, fl := range f.left {
+			put(2, 2+i, fmt.Sprintf("%-10s", fl.label), fl.value, half)
 		}
-		field(2+half, 5, "Flags   ", flags, w-half-4)
+		right := append([]field{f.right[0], {"Subtune", fmt.Sprintf("%d of %d%s", sub, f.Subtunes, subName)}}, f.right[1:]...)
+		for i, fl := range right {
+			put(2+half, 2+i, fmt.Sprintf("%-8s", fl.label), fl.value, w-half-4)
+		}
 	} else if ferr != nil {
 		c.text(2, 3, ferr.Error(), stError, w-4)
 	} else {

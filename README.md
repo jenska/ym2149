@@ -1,10 +1,93 @@
 # YM2149
 
-Cycle-accurate YM2149F / Atari ST PSG emulation in Go.
+Cycle-accurate YM2149F / Atari ST PSG emulation in Go — plus
+[**`sndplayer`**](#-sndplayer--atari-st-music-in-your-terminal), a terminal
+player for Atari ST SNDH and YM music.
 
 Latest release: `v1.2.0`
 
-This repository is intended to be reused later as the sound subsystem for a larger Atari ST emulator. The current focus is a reusable chip core with deterministic timing, backend-neutral audio rendering helpers, an Ebiten adapter, YM and SNDH music-file players, a terminal SNDH player, and a demo harness for quick listening and debugging.
+This repository is intended to be reused later as the sound subsystem for a larger Atari ST emulator. The current focus is a reusable chip core with deterministic timing, backend-neutral audio rendering helpers, an Ebiten adapter, YM and SNDH music-file players, the `sndplayer` terminal music player, and a demo harness for quick listening and debugging.
+
+## 🎵 sndplayer — Atari ST music in your terminal
+
+**`sndplayer` is a ready-to-use music player built on this library.** It plays
+**SNDH** files (the original 68000 music drivers, running on an emulated Atari
+ST) and **YM** register dumps, right in your terminal — with per-voice
+oscilloscopes, a seekable time bar, playlists and WAV export. Point it at a
+single tune, a folder or the whole [SNDH archive](https://sndh.atari.org) ZIP.
+
+```sh
+go install github.com/jenska/ym2149/cmd/sndplayer@latest
+sndplayer sndh_lf.zip
+```
+
+Works on macOS, Linux and Windows terminals with Unicode and mouse support.
+On Linux, audio output needs the ALSA headers to build (`libasound2-dev` on
+Debian/Ubuntu, `alsa-lib-devel` on Fedora).
+
+```text
+ ♫ sndplayer · SNDH & YM player · YM2149 + 68000     ▶ playing · mode Continuous · stereo ABC
+╭─ Song ───────────────────────────────────────────────────────────────────────────────────╮
+│ Title     Bug Bash                              Year    1991                             │
+│ Composer  Rob Brooks                            Subtune 3 of 6                           │
+│ Ripper    Grazey/PHF                            Replay  Timer C at 50 Hz                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Voice A ───────────────────╮╭─ Voice B ───────────────────╮╭─ Voice C ──────────────────╮
+│                             ││⡏⠉⠉⠉⢹    ⡏⠉⠉⠉⠉⡇   ⢸⠉⠉⠉⠉⡇     ││                            │
+│⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤││⡇   ⢸    ⡇    ⡇   ⢸    ⡇    ││⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤│
+│                             ││⠃   ⠘⠒⠒⠒⠒⠃    ⠓⠒⠒⠒⠚    ⠓⠒⠒  ││                            │
+│ ░░░░░░░░░░░░░░░░░░░░░░░░░░░ ││ █████░░░░░░░░░░░░░░░░░░░░░░ ││ ░░░░░░░░░░░░░░░░░░░░░░░░░░ │
+╰─────────────────────────────╯╰─────────────────────────────╯╰────────────────────────────╯
+ ▶ 00:01 ━●──────────────────────────────────────────────────────────────────────── 01:10
+╭─ Files 2/3 ──────────────────────────────────────────╮╭─ Subtunes 3/6 ────────────────────╮
+│  aerius.snd · Aerius                                 ││   1 *                       01:48 │
+│♪ bugbash.snd · Bug Bash                              ││   2                         00:39 │
+│  doodbug.snd · Doodle Bug                            ││♪  3                         01:10 │
+╰──────────────────────────────────────────────────────╯╰───────────────────────────────────╯
+```
+
+Inspired by Arnaud Carré's [SNDH-Player](https://github.com/arnaud-carre/sndh-player):
+
+- **Formats:** `.sndh`/`.snd` (plain or ICE! packed) and `.ym` (YM2!–YM6!,
+  plain or LHA packed), recognised by content.
+- **Playlists:** files, folders (searched recursively) and ZIP archives with
+  thousands of tunes; tunes are only loaded when shown.
+- **Display:** song details, braille oscilloscope and level meter per voice,
+  file list and subtune list with names and lengths.
+- **Playback:** instant seeking (keys or mouse click on the time bar), play
+  modes Single / Loop / Continuous / Random, ABC / ACB / mono stereo.
+- **WAV export** of the playing tune (`w`), or headless with `-wav`.
+- **Accurate sound:** the same cycle-accurate YM2149 core, band-limited
+  resampling and Atari ST output filter as the rest of this library.
+
+More examples:
+
+```sh
+sndplayer "Rob Hubbard - Goldrunner.sndh"            # a single tune
+sndplayer -mode loop -subtune 3 tune.sndh            # loop subtune 3
+sndplayer ~/music/*.ym                               # YM files
+sndplayer -wav out.wav -subtune 2 tune.sndh          # render to WAV and exit
+```
+
+| Key | Action |
+| --- | --- |
+| `space` | pause / resume (restart a finished tune) |
+| `←` `→` / `<` `>` | seek 5 s / 30 s; `0`–`9` jump to 0–90 % |
+| `tab`, `↑` `↓` `PgUp` `PgDn` `Home` `End` | move between and within the file and subtune lists |
+| `enter` | play the selected file or subtune |
+| `n` `p` / `N` `P` | next / previous subtune / file; `r` random tune |
+| `m` | play mode: Single, Loop, Continuous (next subtune, then next file), Random |
+| `s` | stereo: ABC, ACB, mono |
+| `w` | export the playing subtune to `<file>-<subtune>.wav` |
+| `q` | quit |
+
+The mouse works too: click the time bar to seek, click a list row to select
+it and again to play it, and scroll the lists with the wheel. Subtunes without
+a length in the header count as `-length` long (default 3 minutes) in the
+Single, Continuous and Random modes. A YM file is a single subtune; its song
+panel shows the YM name, author, comment, frame rate, PSG clock, loop point and
+digidrum count. Set `NO_COLOR` for a monochrome UI. Run `sndplayer -h` for all
+flags.
 
 ## Versioning
 
@@ -14,8 +97,16 @@ This repository is intended to be reused later as the sound subsystem for a larg
 
 ## Installation
 
+Library:
+
 ```sh
 go get github.com/jenska/ym2149@v1.2.0
+```
+
+Music player:
+
+```sh
+go install github.com/jenska/ym2149/cmd/sndplayer@latest
 ```
 
 ## Status
@@ -25,6 +116,8 @@ go get github.com/jenska/ym2149@v1.2.0
 - Tone, noise, envelope, mixer, and I/O port handling
 - YM2149-style nonlinear analog mix table for mono PCM generation
 - Ebiten audio adapter that exposes stereo `float32` PCM to `audio.NewPlayerF32`
+- SNDH (68000 drivers on an emulated Atari ST) and YM music-file players
+- `sndplayer`: terminal music player with oscilloscopes, playlists and WAV export
 - Scripted and interactive demo scaffolding
 
 ## Package Layout
@@ -39,7 +132,7 @@ go get github.com/jenska/ym2149@v1.2.0
 - `format/sndh`: SNDH music-file player (68000 driver on an emulated minimal Atari ST)
 - `internal/psgdemo`: shared scripted demo logic
 - `cmd/psgdemo`: Ebiten demo app
-- `cmd/sndplayer`: terminal SNDH player with oscilloscopes
+- `cmd/sndplayer`: terminal SNDH and YM player with oscilloscopes
 
 ## Design Notes
 
@@ -247,7 +340,9 @@ ST "YM" register-dump formats and drives them through the emulation core.
   returns a mono source that owns a `Chip` and advances it as it is drained,
   so it plugs directly into `renderer/bandlimited` → `renderer/atarist` → a
   backend adapter. With `PlayerConfig{ChannelTaps: true}` it is instead a
-  `renderer/stereo` channel source.
+  `renderer/stereo` channel source. `Position`, `Duration` and `Seek` report
+  and move the playing time; with `Loop`, positions past the end land inside
+  the loop.
 
 ```go
 song, err := ym.Parse(data)
@@ -391,61 +486,6 @@ Interactive controls:
 - `E`: toggle envelope mode
 - `[` / `]`: change envelope shape
 - `Tab`: switch between scripted and interactive modes
-
-## sndplayer
-
-`cmd/sndplayer` is a terminal SNDH player in the spirit of Arnaud Carré's
-[SNDH-Player](https://github.com/arnaud-carre/sndh-player): song details,
-per-voice braille oscilloscopes with level meters, a seekable time bar, a
-playlist and a subtune list. It takes files, directories (searched
-recursively) and ZIP archives such as the SNDH archive download, and plays
-through the same `renderer/stereo` → `renderer/bandlimited` →
-`renderer/atarist` chain as the demo, with audio output via oto.
-
-```sh
-go install github.com/jenska/ym2149/cmd/sndplayer@latest
-sndplayer sndh_lf.zip
-sndplayer -mode loop -subtune 3 tune.sndh
-sndplayer -wav out.wav -subtune 2 tune.sndh   # render to WAV and exit
-```
-
-```text
- ♫ sndplayer · SNDH player · YM2149 + 68000          ▶ playing · mode Continuous · stereo ABC
-╭─ Song ───────────────────────────────────────────────────────────────────────────────────╮
-│ Title     Bug Bash                              Year    1991                             │
-│ Composer  Rob Brooks                            Subtune 3 of 6                           │
-│ Ripper    Grazey/PHF                            Replay  Timer C at 50 Hz                 │
-╰──────────────────────────────────────────────────────────────────────────────────────────╯
-╭─ Voice A ───────────────────╮╭─ Voice B ───────────────────╮╭─ Voice C ──────────────────╮
-│                             ││⡏⠉⠉⠉⢹    ⡏⠉⠉⠉⠉⡇   ⢸⠉⠉⠉⠉⡇     ││                            │
-│⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤││⡇   ⢸    ⡇    ⡇   ⢸    ⡇    ││⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤⠤│
-│                             ││⠃   ⠘⠒⠒⠒⠒⠃    ⠓⠒⠒⠒⠚    ⠓⠒⠒  ││                            │
-│ ░░░░░░░░░░░░░░░░░░░░░░░░░░░ ││ █████░░░░░░░░░░░░░░░░░░░░░░ ││ ░░░░░░░░░░░░░░░░░░░░░░░░░░ │
-╰─────────────────────────────╯╰─────────────────────────────╯╰────────────────────────────╯
- ▶ 00:01 ━●──────────────────────────────────────────────────────────────────────── 01:10
-╭─ Files 2/3 ──────────────────────────────────────────╮╭─ Subtunes 3/6 ────────────────────╮
-│  aerius.snd · Aerius                                 ││   1 *                       01:48 │
-│♪ bugbash.snd · Bug Bash                              ││   2                         00:39 │
-│  doodbug.snd · Doodle Bug                            ││♪  3                         01:10 │
-╰──────────────────────────────────────────────────────╯╰───────────────────────────────────╯
-```
-
-| Key | Action |
-| --- | --- |
-| `space` | pause / resume (restart a finished tune) |
-| `←` `→` / `<` `>` | seek 5 s / 30 s; `0`–`9` jump to 0–90 % |
-| `tab`, `↑` `↓` `PgUp` `PgDn` `Home` `End` | move between and within the file and subtune lists |
-| `enter` | play the selected file or subtune |
-| `n` `p` / `N` `P` | next / previous subtune / file; `r` random tune |
-| `m` | play mode: Single, Loop, Continuous (next subtune, then next file), Random |
-| `s` | stereo: ABC, ACB, mono |
-| `w` | export the playing subtune to `<file>-<subtune>.wav` |
-| `q` | quit |
-
-The mouse works too: click the time bar to seek, click a list row to select
-it and again to play it, and scroll the lists with the wheel. Subtunes without
-a length in the header count as `-length` long (default 3 minutes) in the
-Single, Continuous and Random modes. Set `NO_COLOR` for a monochrome UI.
 
 ## Testing
 
