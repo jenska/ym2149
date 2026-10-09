@@ -4,7 +4,7 @@ Cycle-accurate YM2149F / Atari ST PSG emulation in Go — plus
 [**`sndplayer`**](#-sndplayer--atari-st-music-in-your-terminal), a terminal
 player for Atari ST SNDH and YM music.
 
-Latest release: `v1.2.0`
+Latest release: `v1.3.0`
 
 This repository is intended to be reused later as the sound subsystem for a larger Atari ST emulator. The current focus is a reusable chip core with deterministic timing, backend-neutral audio rendering helpers, an Ebiten adapter, YM and SNDH music-file players, the `sndplayer` terminal music player, and a demo harness for quick listening and debugging.
 
@@ -100,7 +100,7 @@ flags.
 Library:
 
 ```sh
-go get github.com/jenska/ym2149@v1.2.0
+go get github.com/jenska/ym2149@v1.3.0
 ```
 
 Music player:
