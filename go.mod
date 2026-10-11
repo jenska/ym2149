@@ -5,9 +5,9 @@ go 1.27
 require (
 	github.com/ebitengine/oto/v3 v3.4.1
 	github.com/hajimehoshi/ebiten/v2 v2.9.11
-	github.com/jenska/m68kasm v1.6.1
-	github.com/jenska/m68kdasm v1.3.0
-	github.com/jenska/m68kemu v1.6.2
+	github.com/jenska/m68kasm v1.6.3
+	github.com/jenska/m68kdasm v1.4.1
+	github.com/jenska/m68kemu v1.7.0
 	golang.org/x/term v0.46.0
 )
 

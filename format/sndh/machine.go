@@ -130,7 +130,7 @@ func (t *tosImage) label(name string) uint32 {
 
 // machine is a minimal Atari ST: RAM, the TOS stub, PSG, MFP and VBL.
 type machine struct {
-	cpu  m68kemu.CPU
+	cpu  *m68kemu.CPU
 	bus  *m68kemu.Bus
 	tos  *tosImage
 	file *File
@@ -177,7 +177,6 @@ func newMachine(f *File, chip *ym2149.Chip) (*machine, error) {
 		return nil, err
 	}
 	m.cpu = cpu
-	cpu.SetFastMemory(m68kemu.FastRegion{Base: 0, Mem: m.ram})
 	cpu.SetIRQSource(m)
 	return m, nil
 }
@@ -624,6 +623,9 @@ func (d ramDevice) Write(s m68kemu.Size, a, v uint32) error {
 	return nil
 }
 func (d ramDevice) Reset() {}
+
+// Memory implements m68kemu.MemoryDevice, so the CPU accesses RAM directly.
+func (d ramDevice) Memory() ([]byte, bool) { return d.m.ram, false }
 
 // romDevice is the TOS window: stub code, its variables and the host
 // registers.
