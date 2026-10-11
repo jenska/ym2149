@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project follows Semantic Versioning.
 
+## [1.3.1] - 2026-10-11
+
+### Changed
+
+- `format/sndh` runs on `github.com/jenska/m68kemu` v1.7.0 (with m68kasm
+  v1.6.3 and m68kdasm v1.4.1). The emulated RAM is a `MemoryDevice`, which
+  replaces the removed `SetFastMemory`.
+
 ## [1.3.0] - 2026-10-09
 
 ### Added
